@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -73,6 +74,8 @@ public sealed partial class Evento
 
     public static Evento Nuevo(string id, string tipo, JsonElement carga, DateTimeOffset publicadoEn)
     {
+        ArgumentNullException.ThrowIfNull(id);
+
         if (!IdValido(id))
         {
             throw new ArgumentException(
@@ -217,9 +220,13 @@ public sealed partial class Evento
         }
     }
 
+    /// <summary>Comprueba el tipo sin construir un evento; lo usa el reclamo por tipo.</summary>
+    public static bool EsTipoValido([NotNullWhen(true)] string? tipo) =>
+        !string.IsNullOrWhiteSpace(tipo) && tipo.Length <= 100 && TipoValido().IsMatch(tipo);
+
     private static void ValidarTipo(string tipo)
     {
-        if (string.IsNullOrWhiteSpace(tipo) || tipo.Length > 100 || !TipoValido().IsMatch(tipo))
+        if (!EsTipoValido(tipo))
         {
             throw new ArgumentException(
                 "El tipo debe ser un nombre en minúsculas separado por puntos, de hasta 100 caracteres.",
