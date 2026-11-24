@@ -1,3 +1,7 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using EventosApi.Api.Endpoints;
+using EventosApi.Application.Eventos;
 using EventosApi.Infrastructure.Persistencia;
 using EventosApi.Infrastructure.Salud;
 using LL.Hosting;
@@ -12,8 +16,20 @@ var cadenaCola = builder.Configuration.GetConnectionString("Cola")
         "Falta ConnectionStrings:Cola. En compose la pone el servicio; fuera de ahí, la configuración local.");
 
 builder.Services.AddDbContext<ColaDbContext>(opciones => opciones.UseNpgsql(cadenaCola));
+builder.Services.AddScoped<IColaEventos, ColaEventos>();
+builder.Services.AddScoped<ServicioEventos>();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ISondaBase, SondaBase>();
 builder.Services.AddHealthChecks().AddCheck<BaseDatosHealthCheck>("base");
+
+// Nombres del contrato v1 en las dos direcciones y sin propiedades que no
+// estén declaradas.
+builder.Services.ConfigureHttpJsonOptions(opciones =>
+{
+    opciones.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+    opciones.SerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.SnakeCaseLower;
+    opciones.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
+});
 
 builder.Services.AddOpenApi();
 builder.Services.AddApiProblemDetails();
@@ -44,6 +60,7 @@ app.UseApiTransportSecurity(app.Environment);
 app.UseCors("ApiCors");
 app.UseRateLimiter();
 
+app.MapEventos();
 app.MapGet("/api/saludo", () => Results.Ok(new { mensaje = "Hola" }));
 // La sonda de la plataforma no comparte el cupo del tráfico de la API.
 app.MapApiHealthChecks().DisableRateLimiting();
