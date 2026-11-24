@@ -146,7 +146,9 @@ jobs:
 
   dependency-review:
     name: Revisión de dependencias (solo PR)
-    if: github.event_name == 'pull_request'
+    # La revisión de dependencias exige GitHub Advanced Security, que un
+    # repositorio privado no tiene; se activa el día que se publique.
+    if: github.event_name == 'pull_request' && github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     permissions:
       contents: read
