@@ -1,0 +1,649 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Eventos API",
+    "version": "1.0.0",
+    "description": "Contrato v1 del servicio de eventos. El servicio no conoce el dominio: guarda un sobre opaco, lo entrega con lease y recibe ack o nack. La versión va en la ruta (`/v1`) para que una v2 pueda convivir. La autenticación con Entra ID y los permisos por operación forman parte de este contrato y se implementan en la fase de acceso."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Instancia local sobre compose"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "eventos",
+      "description": "Publicación, entrega y cierre del ciclo de cada evento"
+    },
+    {
+      "name": "salud",
+      "description": "Sonda de proceso y base de datos"
+    }
+  ],
+  "paths": {
+    "/v1/eventos": {
+      "post": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "publicarEvento",
+        "summary": "Publica un evento",
+        "description": "Idempotente por `id`. Si no existe, lo crea y responde 201. Si existe y está pendiente o fallido y no perdió ninguna entrega, reemplaza `tipo` y `carga`, conserva `publicado_en`, `intentos`, la espera y el resultado, y responde 200. Si está reclamado, aplicado o muerto, o si una entrega venció sin cerrarse, responde 409: cambiar la carga de un evento entregado o ya aplicado rompería la prueba del cierre, y una entrega abandonada puede seguir viva con la versión anterior.",
+        "x-permiso": "eventos.publicar",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicarEvento"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Evento creado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Evento existente actualizado (tipo y carga)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "409": {
+            "$ref": "#/components/responses/TransicionInvalida"
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "listarEventos",
+        "summary": "Lista eventos por estado",
+        "description": "Devuelve los eventos del estado pedido, del más antiguo al más nuevo, en páginas de como mucho 200. `siguiente` es el cursor para la página siguiente o nulo si no hay más.",
+        "x-permiso": "eventos.leer",
+        "parameters": [
+          {
+            "name": "estado",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/EstadoEvento"
+            }
+          },
+          {
+            "name": "limite",
+            "in": "query",
+            "required": false,
+            "description": "Tamaño de la página; 50 por defecto y 200 como máximo.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Valor de `siguiente` de la página anterior. Opaco para el cliente.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de eventos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaEventos"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          }
+        }
+      }
+    },
+    "/v1/eventos/siguiente": {
+      "post": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "reclamarEvento",
+        "summary": "Reclama el evento más antiguo disponible del tipo pedido",
+        "description": "Fija el lease de 300 s y suma un intento. Responde 204 si no hay eventos disponibles. Un evento en fallido solo se entrega cuando cumple su espera. Si el reclamo encuentra un evento que ya agotó las cinco entregas, no lo entrega: lo aparta en muertos y responde 204.",
+        "x-permiso": "eventos.consumir",
+        "parameters": [
+          {
+            "name": "tipo",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 100,
+              "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)*$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evento entregado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No hay eventos disponibles, o el único candidato se apartó en muertos"
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "409": {
+            "$ref": "#/components/responses/TransicionInvalida"
+          }
+        }
+      }
+    },
+    "/v1/eventos/{id}": {
+      "get": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "consultarEvento",
+        "summary": "Consulta un evento por identificador",
+        "x-permiso": "eventos.leer",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdEvento"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          }
+        }
+      }
+    },
+    "/v1/eventos/{id}/ack": {
+      "post": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "confirmarEvento",
+        "summary": "Marca el evento como aplicado",
+        "description": "Solo desde reclamado, con el lease vigente y con el número de entrega que se está cerrando. El resultado es el hash del commit que aplicó el cambio. Una entrega anterior se rechaza con 409: el evento pudo reclamarse otra vez.",
+        "x-permiso": "eventos.consumir",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdEvento"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolicitudAck"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Evento aplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "409": {
+            "$ref": "#/components/responses/TransicionInvalida"
+          }
+        }
+      }
+    },
+    "/v1/eventos/{id}/nack": {
+      "post": {
+        "tags": [
+          "eventos"
+        ],
+        "operationId": "rechazarEvento",
+        "summary": "Marca la entrega como fallida",
+        "description": "Solo desde reclamado, con el lease vigente y con el número de entrega que se está cerrando. Fija la espera de 30 s × 2^intentos, con tope de 300 s; el paso a muertos ocurre al disponer, cuando ya se hicieron las cinco entregas.",
+        "x-permiso": "eventos.consumir",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdEvento"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SolicitudNack"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Evento fallido, a la espera de reintento",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evento"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
+          "401": {
+            "$ref": "#/components/responses/NoAutenticado"
+          },
+          "403": {
+            "$ref": "#/components/responses/SinPermiso"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoEncontrado"
+          },
+          "409": {
+            "$ref": "#/components/responses/TransicionInvalida"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "salud"
+        ],
+        "operationId": "consultarSalud",
+        "summary": "Comprueba proceso y base de datos",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Proceso y base responden"
+          },
+          "503": {
+            "description": "La base no responde"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Entra ID con emisor y audiencia obligatorios. Permisos de la fase de acceso: eventos.publicar, eventos.consumir y eventos.leer."
+      }
+    },
+    "parameters": {
+      "IdEvento": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+        }
+      }
+    },
+    "responses": {
+      "SolicitudInvalida": {
+        "description": "El cuerpo, el identificador o un parámetro no cumplen el contrato",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NoAutenticado": {
+        "description": "Falta el token o no es válido",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "SinPermiso": {
+        "description": "El token no lleva el permiso de la operación",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "NoEncontrado": {
+        "description": "No existe un evento con ese identificador",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TransicionInvalida": {
+        "description": "El estado actual no admite la operación, la entrega no es la vigente o el lease venció",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "EstadoEvento": {
+        "type": "string",
+        "enum": [
+          "pendiente",
+          "reclamado",
+          "aplicado",
+          "fallido",
+          "muerto"
+        ]
+      },
+      "PublicarEvento": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tipo",
+          "carga"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "tipo": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)*$"
+          },
+          "carga": {
+            "type": "object",
+            "description": "Objeto opaco de hasta 64 KiB en UTF-8"
+          }
+        }
+      },
+      "ResultadoAck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hash"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      },
+      "ResultadoMotivo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "motivo"
+        ],
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "SolicitudAck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "hash",
+          "intentos"
+        ],
+        "properties": {
+          "hash": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "intentos": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Número de entrega que se está cerrando, el que traía el evento reclamado"
+          }
+        }
+      },
+      "SolicitudNack": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "motivo",
+          "intentos"
+        ],
+        "properties": {
+          "motivo": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "intentos": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Número de entrega que se está cerrando, el que traía el evento reclamado"
+          }
+        }
+      },
+      "PaginaEventos": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "eventos",
+          "siguiente"
+        ],
+        "properties": {
+          "eventos": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/Evento"
+            }
+          },
+          "siguiente": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cursor de la página siguiente, o nulo si no hay más"
+          }
+        }
+      },
+      "Evento": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tipo",
+          "carga",
+          "publicado_en",
+          "estado",
+          "intentos",
+          "lease_hasta",
+          "resultado"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "tipo": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)*$"
+          },
+          "carga": {
+            "type": "object"
+          },
+          "publicado_en": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "estado": {
+            "$ref": "#/components/schemas/EstadoEvento"
+          },
+          "intentos": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "lease_hasta": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "string",
+                "format": "date-time"
+              }
+            ]
+          },
+          "resultado": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ResultadoAck"
+              },
+              {
+                "$ref": "#/components/schemas/ResultadoMotivo"
+              }
+            ]
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "title",
+          "status"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "traceId": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -10,7 +10,9 @@ API empresarial en .NET 10 con la línea base del portfolio: arquitectura por ca
 - `src/EventosApi.Application`: casos de uso y puertos. Solo depende de `Domain`.
 - `src/EventosApi.Infrastructure`: adaptadores. Depende de `Application` y `Domain`.
 - `src/EventosApi.Api`: host mínimo; compone los servicios y expone los endpoints.
-- `tests/EventosApi.Tests`: pruebas de contrato HTTP.
+- `contracts/`: JSON Schema y OpenAPI versionados del sobre y de la superficie HTTP.
+- `docs/adr/`: decisiones estructurales, con su ADR 0001.
+- `tests/EventosApi.Tests`: pruebas de contrato, transiciones y salud.
 
 La regla de dependencias es `Domain ← Application ← Infrastructure ← Api`. No la debilites.
 
