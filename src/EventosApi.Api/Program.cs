@@ -1,8 +1,19 @@
+using EventosApi.Infrastructure.Persistencia;
+using EventosApi.Infrastructure.Salud;
 using LL.Hosting;
 using LL.Security;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var cadenaCola = builder.Configuration.GetConnectionString("Cola")
+    ?? throw new InvalidOperationException(
+        "Falta ConnectionStrings:Cola. En compose la pone el servicio; fuera de ahí, la configuración local.");
+
+builder.Services.AddDbContext<ColaDbContext>(opciones => opciones.UseNpgsql(cadenaCola));
+builder.Services.AddSingleton<ISondaBase, SondaBase>();
+builder.Services.AddHealthChecks().AddCheck<BaseDatosHealthCheck>("base");
 
 builder.Services.AddOpenApi();
 builder.Services.AddApiProblemDetails();
@@ -11,6 +22,14 @@ builder.Services.AddDenyByDefaultCors(builder.Configuration);
 builder.Services.AddRemoteIpRateLimiting();
 
 var app = builder.Build();
+
+// En compose la migración la aplica el propio servicio; en local se puede
+// desactivar y usar `dotnet ef database update`.
+if (builder.Configuration.GetValue<bool>("Database:MigrarAlArrancar"))
+{
+    using var ambito = app.Services.CreateScope();
+    await ambito.ServiceProvider.GetRequiredService<ColaDbContext>().Database.MigrateAsync();
+}
 
 if (app.Environment.IsDevelopment())
 {

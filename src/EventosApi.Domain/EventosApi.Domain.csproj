@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="EventosApi.Tests" />
+    <InternalsVisibleTo Include="EventosApi.Infrastructure" />
   </ItemGroup>
 
 </Project>

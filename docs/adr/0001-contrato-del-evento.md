@@ -2,7 +2,7 @@
 
 > **Estado:** Aceptada · 2026-11-24
 > **Ámbito:** `contracts/evento.v1.schema.json`, `contracts/eventos.v1.openapi.json` y `src/EventosApi.Domain/Evento.cs`.
-> **Evidencia:** contrato JSON y OpenAPI versionados, con 35 pruebas correctas en la solución (33 de contrato y 2 de salud): transiciones válidas y prohibidas, fencing por entrega, espera creciente y paridad entre los dos contratos y el dominio; los cinco comandos de `## Verificación` del repositorio en verde.
+> **Evidencia:** contrato JSON y OpenAPI versionados, con 33 pruebas de contrato y 2 de salud en la aceptación: transiciones válidas y prohibidas, fencing por entrega, espera creciente y paridad entre los dos contratos y el dominio; los cinco comandos de `## Verificación` del repositorio en verde.
 > **Relacionada con:** [contrato JSON](../../contracts/evento.v1.schema.json) y [contrato OpenAPI](../../contracts/eventos.v1.openapi.json).
 
 ## 1. Contexto

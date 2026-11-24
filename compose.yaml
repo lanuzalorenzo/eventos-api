@@ -1,0 +1,44 @@
+name: eventos-api
+
+# Levanta API y Postgres. El build de la API necesita el PAT de solo lectura del
+# feed de GitHub Packages: expórtalo antes de `docker compose up`.
+#   export GH_PACKAGES_TOKEN="<pat-de-solo-lectura>"
+# Las credenciales de abajo son locales y no sirven fuera de este compose.
+
+services:
+  base:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: eventos
+      POSTGRES_USER: eventos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-eventos-local}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - datos-base:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eventos -d eventos"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      secrets:
+        - github_token
+    depends_on:
+      base:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__Cola: "Host=base;Port=5432;Database=eventos;Username=eventos;Password=${POSTGRES_PASSWORD:-eventos-local}"
+      Database__MigrarAlArrancar: "true"
+    ports:
+      - "127.0.0.1:8080:8080"
+
+secrets:
+  github_token:
+    environment: GH_PACKAGES_TOKEN
+
+volumes:
+  datos-base:
