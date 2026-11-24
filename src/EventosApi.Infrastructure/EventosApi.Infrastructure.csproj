@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\EventosApi.Application\EventosApi.Application.csproj" />
+    <ProjectReference Include="..\EventosApi.Domain\EventosApi.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

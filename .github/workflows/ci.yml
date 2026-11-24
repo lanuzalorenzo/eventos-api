@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Compilación, formato y pruebas (.NET 10)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Comprobar la versión de plataforma
+        uses: lanuzalorenzo/core/actions/check-platform@v1.8
+
+      - name: Compilar, verificar formato y probar
+        uses: lanuzalorenzo/core/actions/dotnet@v1.8
+        with:
+          solution: EventosApi.slnx
+          dotnet-version: '10.0.x'
+
+  secret-scanning:
+    name: Detección de secretos (historial completo)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Escanear secretos con Gitleaks
+        uses: lanuzalorenzo/core/actions/gitleaks@v1.8
+
+  sast:
+    name: Análisis estático (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Analizar con CodeQL
+        uses: lanuzalorenzo/core/actions/sast@v1.8
+        with:
+          languages: csharp
+          dotnet-version: '10.0.x'
+
+  sca:
+    name: Dependencias (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Configurar .NET 10 SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restaurar y compilar para generar los manifiestos
+        run: |
+          dotnet restore EventosApi.slnx
+          dotnet build EventosApi.slnx -c Release --no-restore
+
+      - name: Escanear dependencias con Trivy
+        uses: lanuzalorenzo/core/actions/scan@v1.8
+        with:
+          scan-type: fs
+          scan-ref: .
+
+  container-security:
+    name: Contenedor (hardening y escaneo)
+    runs-on: ubuntu-latest
+    needs: [ build-and-test ]
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Construir la imagen
+        id: image
+        uses: lanuzalorenzo/core/actions/container-publish@v1.8
+        with:
+          image: company-api
+          push: false
+          load: true
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verificar que el contenedor no ejecuta como root
+        env:
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          container_uid="$(docker run --rm --entrypoint id "${IMAGE_TAG}" -u)"
+          echo "UID del contenedor: ${container_uid}"
+          test "${container_uid}" != "0"
+
+      - name: Escanear la imagen con Trivy
+        uses: lanuzalorenzo/core/actions/scan@v1.8
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.tag }}
+
+  dependency-review:
+    name: Revisión de dependencias (solo PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Revisar cambios de dependencias
+        uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: high
