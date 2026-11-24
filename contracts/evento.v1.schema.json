@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:eventos-api:contracts:evento:v1",
+  "title": "Sobre del evento v1",
+  "description": "Sobre único que el servicio guarda y entrega. La carga es opaca para el servicio y la define el consumidor, con un máximo de 64 KiB en UTF-8.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tipo",
+    "carga",
+    "publicado_en",
+    "estado",
+    "intentos",
+    "lease_hasta",
+    "resultado"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "ULID con el prefijo evt_. Publicar dos veces el mismo identificador no lo duplica: actualiza solo si el evento está pendiente o fallido y no perdió una entrega; en el resto responde 409."
+    },
+    "tipo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z0-9]+)*$",
+      "description": "Nombre del tipo de trabajo. En v1, el primer tipo es cierre.sesion."
+    },
+    "carga": {
+      "type": "object",
+      "description": "Carga opaca para el servicio, de hasta 65536 bytes en UTF-8. Su esquema lo fija el consumidor."
+    },
+    "publicado_en": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Instante UTC en que el servicio aceptó el evento en su primera publicación."
+    },
+    "estado": {
+      "type": "string",
+      "enum": [
+        "pendiente",
+        "reclamado",
+        "aplicado",
+        "fallido",
+        "muerto"
+      ],
+      "description": "Solo cambia por las transiciones del contrato."
+    },
+    "intentos": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Entregas realizadas. La quinta es la última: un quinto nack la deja fallida y, al disponer, el evento pasa a muerto; un sexto reclamo tampoco entrega."
+    },
+    "lease_hasta": {
+      "description": "Vencimiento del lease de 300 s desde el reclamo; nulo fuera del estado reclamado.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "format": "date-time"
+        }
+      ]
+    },
+    "resultado": {
+      "description": "En ack, el hash del commit; en nack o en muerto, el motivo, que sigue visible mientras el evento espera el reintento. Nulo hasta el primer resultado.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/resultadoAck"
+        },
+        {
+          "$ref": "#/$defs/resultadoMotivo"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "resultadoAck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hash"
+      ],
+      "properties": {
+        "hash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "resultadoMotivo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "motivo"
+      ],
+      "properties": {
+        "motivo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    }
+  }
+}
