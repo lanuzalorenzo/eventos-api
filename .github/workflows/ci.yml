@@ -64,7 +64,10 @@ jobs:
       - name: Checkout del repositorio
         uses: actions/checkout@v7
 
+      # La subida de SARIF falla en un repositorio privado sin GitHub Advanced
+      # Security; el análisis sigue corriendo y su fallo no bloquea hasta publicar.
       - name: Analizar con CodeQL
+        continue-on-error: ${{ github.event.repository.visibility != 'public' }}
         uses: lanuzalorenzo/core/actions/sast@v1.8
         with:
           languages: csharp
@@ -99,6 +102,7 @@ jobs:
         with:
           scan-type: fs
           scan-ref: .
+          upload: ${{ github.event.repository.visibility == 'public' }}
 
   container-security:
     name: Contenedor (hardening y escaneo)
@@ -119,7 +123,7 @@ jobs:
         id: image
         uses: lanuzalorenzo/core/actions/container-publish@v1.8
         with:
-          image: company-api
+          image: eventos-api
           push: false
           load: true
           secrets: |
@@ -138,6 +142,7 @@ jobs:
         with:
           scan-type: image
           image-ref: ${{ steps.image.outputs.tag }}
+          upload: ${{ github.event.repository.visibility == 'public' }}
 
   dependency-review:
     name: Revisión de dependencias (solo PR)
