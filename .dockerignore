@@ -3,6 +3,8 @@
 **/bin
 **/obj
 **/*.user
+**/appsettings.Local.json
+.env*
 .vs
 .vscode
 .idea
