@@ -217,6 +217,9 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/SolicitudInvalida"
+          },
           "401": {
             "$ref": "#/components/responses/NoAutenticado"
           },
