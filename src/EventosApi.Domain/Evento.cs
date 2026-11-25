@@ -76,7 +76,7 @@ public sealed partial class Evento
     {
         ArgumentNullException.ThrowIfNull(id);
 
-        if (!IdValido(id))
+        if (!EsIdValido(id))
         {
             throw new ArgumentException(
                 "El identificador debe ser un ULID con el prefijo evt_ y 26 caracteres en mayúsculas.",
@@ -224,6 +224,27 @@ public sealed partial class Evento
     public static bool EsTipoValido([NotNullWhen(true)] string? tipo) =>
         !string.IsNullOrWhiteSpace(tipo) && tipo.Length <= 100 && TipoValido().IsMatch(tipo);
 
+    /// <summary>Comprueba el identificador sin construir un evento; lo usan la ruta y el ack.</summary>
+    public static bool EsIdValido([NotNullWhen(true)] string? id)
+    {
+        const string crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+        if (id is not { Length: 30 } || !id.StartsWith("evt_", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        foreach (var caracter in id.AsSpan(4))
+        {
+            if (crockford.IndexOf(caracter) < 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static void ValidarTipo(string tipo)
     {
         if (!EsTipoValido(tipo))
@@ -247,26 +268,6 @@ public sealed partial class Evento
         }
 
         return carga.Clone();
-    }
-
-    private static bool IdValido(string id)
-    {
-        const string crockford = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-
-        if (id.Length != 30 || !id.StartsWith("evt_", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        foreach (var caracter in id.AsSpan(4))
-        {
-            if (crockford.IndexOf(caracter) < 0)
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     [GeneratedRegex("^[a-z][a-z0-9]*(\\.[a-z0-9]+)*$", RegexOptions.CultureInvariant)]

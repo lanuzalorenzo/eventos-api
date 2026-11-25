@@ -27,6 +27,40 @@ public sealed class ColaEventos(ColaDbContext db) : IColaEventos, IColaEnTransac
             .FromSqlInterpolated($"SELECT * FROM cola.evento WHERE id = {id} FOR UPDATE")
             .SingleOrDefaultAsync(cancelacion);
 
+    public async Task<Evento?> BuscarAsync(string id, CancellationToken cancelacion) =>
+        await db.Eventos
+            .AsNoTracking()
+            .SingleOrDefaultAsync(evento => evento.Id == id, cancelacion);
+
+    public async Task<IReadOnlyList<Evento>> ListarAsync(
+        EstadoEvento? estado,
+        (DateTimeOffset PublicadoEn, string Id)? desde,
+        int limite,
+        CancellationToken cancelacion)
+    {
+        var consulta = db.Eventos.AsNoTracking();
+
+        if (estado is { } filtro)
+        {
+            consulta = consulta.Where(evento => evento.Estado == filtro);
+        }
+
+        if (desde is var (publicadoEn, id))
+        {
+            // La clave de orden es (publicado_en, id); el cursor continúa
+            // estrictamente después de la última fila entregada.
+            consulta = consulta.Where(evento =>
+                evento.PublicadoEn > publicadoEn
+                || (evento.PublicadoEn == publicadoEn && evento.Id.CompareTo(id) > 0));
+        }
+
+        return await consulta
+            .OrderBy(evento => evento.PublicadoEn)
+            .ThenBy(evento => evento.Id)
+            .Take(limite)
+            .ToListAsync(cancelacion);
+    }
+
     public void Agregar(Evento evento) => db.Eventos.Add(evento);
 
     public async Task<Evento?> SiguienteCandidatoAsync(

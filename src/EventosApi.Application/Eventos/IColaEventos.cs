@@ -12,6 +12,20 @@ public interface IColaEventos
     Task<T> EnTransaccionAsync<T>(
         Func<IColaEnTransaccion, CancellationToken, Task<T>> trabajo,
         CancellationToken cancelacion);
+
+    /// <summary>Lee el evento sin bloqueo; lo usa la consulta de lectura.</summary>
+    Task<Evento?> BuscarAsync(string id, CancellationToken cancelacion);
+
+    /// <summary>
+    /// Página de eventos filtrada por estado, del más antiguo al más nuevo y
+    /// ordenada por publicación e identificador. `desde` es la clave de la
+    /// última fila de la página anterior; nulo para empezar.
+    /// </summary>
+    Task<IReadOnlyList<Evento>> ListarAsync(
+        EstadoEvento? estado,
+        (DateTimeOffset PublicadoEn, string Id)? desde,
+        int limite,
+        CancellationToken cancelacion);
 }
 
 /// <summary>Operaciones disponibles dentro de una transacción de la cola.</summary>
