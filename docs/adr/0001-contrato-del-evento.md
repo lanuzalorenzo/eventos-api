@@ -74,7 +74,7 @@ Las reglas viven en `Evento`, sin EF Core, sin HTTP y sin reloj propio: cada ope
 - **Estados implícitos en filas de ack y nack.** Dos fuentes de verdad para lo mismo: una fila de ack y una columna de estado acaban discrepando. El estado es una columna y las operaciones son transiciones.
 - **Lease sin fencing.** Ya descartado en §2.5: un consumidor lento puede ackear la entrega de otro. El lease vigente solo acota el tiempo, no identifica la entrega.
 - **Reintentos sin contador ni muertos.** Un evento que siempre falla se reentrega para siempre y llena la cola. El contador y el estado `muerto` lo apartan con su historial.
-- **Generar el OpenAPI solo desde el código.** Los endpoints no existen todavía; el contrato se escribe antes y guía la implementación y las pruebas. Cuando existan, el documento versionado se contrasta con la generación automática en CI, sin que una sustituya a la otra.
+- **Generar el OpenAPI solo desde el código.** Cuando se decidió, los endpoints no existían; el contrato se escribió antes y guio la implementación y las pruebas. Hoy el documento versionado sigue siendo la fuente; el contraste automático con la generación del host está pendiente y, cuando se añada en CI, no sustituirá al documento.
 - **Resultado como texto libre.** No se distingue el hash del motivo y la consulta no puede verificar el cierre. El objeto con una sola clave obliga a elegir.
 - **Devolver todos los eventos en una lista.** El historial crece sin tope. La lectura va paginada con un límite máximo de 200 y un cursor opaco.
 
@@ -83,7 +83,7 @@ Las reglas viven en `Evento`, sin EF Core, sin HTTP y sin reloj propio: cada ope
 - La tabla `evento` de la fase de persistencia usa `estado` con `check` sobre los cinco valores e `intentos` con `check (intentos between 0 and 5)`; el dominio ya no deja pasar otro valor.
 - `EntregaAbandonada` también se persiste (`entrega_abandonada`, por defecto `false`). Sin esa columna, al recargar el evento se perdería el congelado de la carga y volvería el caso que cierra §2.5.
 - La entrega es al menos una vez. El consumidor debe ser idempotente, el hash del commit es la prueba de aplicación y el ack o el nack exigen la entrega vigente.
-- La autenticación y los permisos `eventos.publicar`, `eventos.consumir` y `eventos.leer` forman parte del contrato, pero se implementan en la fase de acceso; hasta entonces el OpenAPI describe el objetivo y no una capacidad ya ejecutada. Cada operación declara su permiso con `x-permiso`.
+- La autenticación y los permisos `eventos.publicar`, `eventos.consumir` y `eventos.leer` forman parte del contrato y se implementan en la fase de acceso; desde EV-11 el host los exige, con `/health` como única ruta anónima fuera de Development. Cada operación declara su permiso con `x-permiso`.
 - La sonda se queda en `/health`, la ruta que ya expone el host; el contrato no inventa un alias.
 - Un cambio incompatible del sobre o de las rutas abre `v2` bajo `/v2` y conserva `/v1` hasta que no queden consumidores. El número va en el nombre del archivo y en la versión de `info`.
 - `disponible_en` es interno. Si el panel necesita ver cuándo toca el reintento, se añade en `v2`; no se cuela en `v1`.

@@ -3,7 +3,7 @@
   "info": {
     "title": "Eventos API",
     "version": "1.0.0",
-    "description": "Contrato v1 del servicio de eventos. El servicio no conoce el dominio: guarda un sobre opaco, lo entrega con lease y recibe ack o nack. La versión va en la ruta (`/v1`) para que una v2 pueda convivir. La autenticación con Entra ID y los permisos por operación forman parte de este contrato y se implementan en la fase de acceso."
+    "description": "Contrato v1 del servicio de eventos. El servicio no conoce el dominio: guarda un sobre opaco, lo entrega con lease y recibe ack o nack. La versión va en la ruta (`/v1`) para que una v2 pueda convivir. Cada ruta `/v1` exige un token bearer de Entra ID con el permiso de la operación; `/health` es anónima."
   },
   "servers": [
     {
@@ -363,7 +363,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "Entra ID con emisor y audiencia obligatorios. Permisos de la fase de acceso: eventos.publicar, eventos.consumir y eventos.leer."
+        "description": "Entra ID con emisor y audiencia obligatorios. Permisos: eventos.publicar, eventos.consumir y eventos.leer, como roles de aplicación."
       }
     },
     "parameters": {

@@ -67,7 +67,7 @@ public sealed class HealthTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         var cliente = factory.CreateClient();
 
-        var respuesta = await cliente.GetAsync("/api/saludo");
+        var respuesta = await cliente.GetAsync("/health");
 
         Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
         Assert.Equal("nosniff", respuesta.Headers.GetValues("X-Content-Type-Options").Single());

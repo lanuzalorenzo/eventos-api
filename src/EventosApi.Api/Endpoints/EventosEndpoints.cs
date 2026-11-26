@@ -1,5 +1,6 @@
 using EventosApi.Application.Eventos;
 using EventosApi.Domain;
+using LL.Security;
 
 namespace EventosApi.Api.Endpoints;
 
@@ -7,12 +8,12 @@ public static class EventosEndpoints
 {
     public static IEndpointRouteBuilder MapEventos(this IEndpointRouteBuilder rutas)
     {
-        rutas.MapPost("/v1/eventos", PublicarAsync);
-        rutas.MapGet("/v1/eventos", ListarAsync);
-        rutas.MapPost("/v1/eventos/siguiente", ReclamarAsync);
-        rutas.MapGet("/v1/eventos/{id}", ConsultarAsync);
-        rutas.MapPost("/v1/eventos/{id}/ack", AcusarAsync);
-        rutas.MapPost("/v1/eventos/{id}/nack", RechazarAsync);
+        rutas.MapPost("/v1/eventos", PublicarAsync).RequirePermission("eventos.publicar");
+        rutas.MapGet("/v1/eventos", ListarAsync).RequirePermission("eventos.leer");
+        rutas.MapPost("/v1/eventos/siguiente", ReclamarAsync).RequirePermission("eventos.consumir");
+        rutas.MapGet("/v1/eventos/{id}", ConsultarAsync).RequirePermission("eventos.leer");
+        rutas.MapPost("/v1/eventos/{id}/ack", AcusarAsync).RequirePermission("eventos.consumir");
+        rutas.MapPost("/v1/eventos/{id}/nack", RechazarAsync).RequirePermission("eventos.consumir");
         return rutas;
     }
 
