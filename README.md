@@ -76,6 +76,10 @@ dotnet ef database update 0 --project src/EventosApi.Infrastructure --startup-pr
 
 Los paquetes `LL.Security` y `LL.Hosting` aportan JWT con emisor y audiencia obligatorios, permisos por rol, CORS con denegación por defecto, cabeceras de seguridad con la `Server` de Kestrel apagada, límite por IP, ProblemDetails, HTTPS/HSTS y salud anónima. El host añade la página `problem+json` para 401/403 con los títulos del contrato. La configuración entra por `Program.cs` y `appsettings.json`; los orígenes permitidos van en `Cors:AllowedOrigins`. La sonda `/health` queda fuera del cupo del limitador.
 
+## Observabilidad
+
+La telemetría sale de una sola fuente, `EventosApi`: una traza por operación de la cola; las que operan sobre un evento llevan la etiqueta `evento.id`, y los contadores `eventos.publicados`, `eventos.reclamados`, `eventos.aplicados`, `eventos.fallidos` y `eventos.muertos` cuentan las transiciones. Los logs de cambio de estado llevan el identificador y nunca la carga; el log de comandos de EF queda en `Warning` para que el `jsonb` no acabe en una línea. `/health` comprueba proceso y base.
+
 ## Verificación
 
 ```bash

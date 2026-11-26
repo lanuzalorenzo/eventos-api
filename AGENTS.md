@@ -29,6 +29,12 @@ Servicio de eventos del cierre en .NET 10. Guarda un sobre opaco que produce otr
 - La sonda `/health` es anónima y queda fuera del limitador; el resto de la API no se abre sin pasar por los controles del host.
 - Pruebas de integración en `tests/EventosApi.Tests` para cualquier cambio de comportamiento.
 
+## Observabilidad
+
+- `Telemetria` en `src/EventosApi.Application/Eventos` es la única fuente de `ActivitySource` y `Meter`: fuente `EventosApi`, una traza por operación y `evento.id` en las que operan sobre un evento, y contadores `eventos.publicados`, `eventos.reclamados`, `eventos.aplicados`, `eventos.fallidos` y `eventos.muertos`.
+- Los logs de cambio de estado llevan el identificador y nunca la carga. `Microsoft.EntityFrameworkCore.Database.Command` queda en `Warning` para que el SQL no copie el `jsonb`; la prueba de redacción falla si la carga aparece en un log.
+- `/health` sigue comprobando la base y es anónima.
+
 ## Verificación
 
 ```bash
