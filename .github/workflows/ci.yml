@@ -144,6 +144,20 @@ jobs:
           image-ref: ${{ steps.image.outputs.tag }}
           upload: ${{ github.event.repository.visibility == 'public' }}
 
+  links:
+    name: Enlaces relativos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v7
+
+      - name: Revisar enlaces relativos
+        uses: lanuzalorenzo/core/actions/check-links@v1.8
+        with:
+          root: .
+
   dependency-review:
     name: Revisión de dependencias (solo PR)
     # La revisión de dependencias exige GitHub Advanced Security, que un

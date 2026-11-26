@@ -58,8 +58,31 @@ El CI usa las acciones de `core` para compilar, escanear secretos, analizar el c
 
 Si una PR de Dependabot queda `BEHIND`, actualiza su rama con `gh api -X PUT repos/OWNER/REPO/pulls/N/update-branch`; el push resultante dispara CI y el auto-merge la fusiona. No se automatiza con `GITHUB_TOKEN`: sus eventos no disparan workflows y Dependabot rechaza los comandos de `github-actions[bot]`.
 
+## Línea base
+
+Los identificadores y el criterio son los de [`shared-dotnet/docs/linea-base.md`](https://github.com/lanuzalorenzo/shared-dotnet/blob/main/docs/linea-base.md). Esta tabla es la declaración canónica del estado; la evidencia es localizable y no convierte un control montado en un control probado.
+
+| Id | Estado | Evidencia |
+|---|---|---|
+| `auth` | Parcial | `AddHardenedJwtBearer` con emisor y audiencia obligatorios; `AutenticacionTests` cubre 401 sin token, con otro emisor, otra audiencia, otra clave y token vencido. Falta un registro real de Entra ID con los app roles: hoy el contrato se prueba con el emisor local. |
+| `permisos` | Parcial | `AddPermissionPolicies` con `ClaimTypes.Role` y `RequirePermission` en las seis rutas `/v1`; 403 en `AutenticacionTests`. Falta el app role real en Entra ID. |
+| `cors` | Parcial | `AddDenyByDefaultCors` con orígenes explícitos y `UseCors("ApiCors")`; sin prueba propia en este repositorio (la cubre `LL.Security.Tests`). |
+| `cabeceras` | Parcial | `UseSecurityHeaders`; `HealthTests` comprueba `X-Content-Type-Options` y `X-Frame-Options`. Falta la salida fechada de `/health` sin cabecera `Server`; el comando manual está en §Verificación. |
+| `csp` | Pendiente | Sin `SecurityHeadersOptions.Csp` en el host; la API no sirve HTML, pero el control sigue pendiente. |
+| `limite` | Parcial | `AddRemoteIpRateLimiting` y `UseRateLimiter()`, con la sonda fuera del cupo; sin prueba de 429 en este repositorio. |
+| `problemdetails` | Validado | `AddApiProblemDetails` y `UseApiProblemDetails`; 401 y 403 con `application/problem+json` en `AutenticacionTests`. |
+| `salud` | Validado | `AddApiHealthChecks` y `MapApiHealthChecks`; `/health` anónimo en `HealthTests` y `unhealthy` cuando la base no responde. |
+| `permisos-workflow` | Validado | `permissions` explícito por workflow y por job; sin `write-all`. Escritura solo donde la operación la exige: `security-events` en SAST, SCA y contenedor, `pull-requests` en la revisión de dependencias y `contents` + `pull-requests` en el auto-merge de Dependabot. |
+| `secretos` | Validado | Gitleaks sobre el historial completo en cada push y PR (`.github/workflows/ci.yml`, job `secret-scanning`). |
+| `sast` | Parcial | Job `sast` con CodeQL; en privado el fallo no bloquea (`continue-on-error` hasta publicar) y la subida de SARIF se activa con el repositorio público. |
+| `sca` | Validado | Job `sca` con Trivy sobre los manifiestos, bloqueante con el umbral por defecto de `core/actions/scan` (`CRITICAL,HIGH`); la subida de SARIF se activa al publicar. |
+| `contenedor` | Validado | Job `container-security`: construye la imagen, comprueba que el UID no es 0 y la escanea con Trivy. |
+| `dependabot` | Validado | `.github/dependabot.yml` para NuGet, Docker y GitHub Actions, y `dependabot-auto-merge.yml` para parche y menor. |
+| `enlaces` | Parcial | Job `links` con `check-links@v1.8` (entrada `root`) sobre los 8 documentos; falta el primer run en `main` para pasar a Validado. |
+| `main` | Parcial | Sin ruleset comprobable hasta publicar (EV-28): con el repositorio privado la API de rulesets responde 403 en el plan actual. Se configura al publicar, no antes. |
+
 ## Commits
 
 Formato: `type(scope): imperative summary in English`. Scopes: `api`, `ci`, `tests`, `docs`, `repo`. Tipos: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
-Los cambios entran por rama y pull request: `main` exige PR y los checks del pipeline.
+Con el repositorio privado, el propietario empuja a `main`; al publicarse (EV-28), `main` exige rama, pull request y los checks del pipeline.
