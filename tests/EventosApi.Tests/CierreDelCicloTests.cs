@@ -20,6 +20,7 @@ public sealed class CierreDelCicloTests : IAsyncLifetime
     private const string IdListadoC = "evt_01ARZ3NDEKTSV4RRFFQ69G5FC5";
     private const string IdListadoReclamado = "evt_01ARZ3NDEKTSV4RRFFQ69G5FC6";
     private const string IdInexistente = "evt_01ARZ3NDEKTSV4RRFFQ69G5FZZ";
+    private const string IdLeaseAck = "evt_01ARZ3NDEKTSV4RRFFQ69G5FC7";
 
     private readonly PostgresFixture postgres;
     private readonly ApiFactoryConBase fabrica;
@@ -281,6 +282,97 @@ public sealed class CierreDelCicloTests : IAsyncLifetime
             (await cliente.GetAsync("/v1/eventos")).StatusCode);
     }
 
+    [Fact]
+    public async Task Ack_con_lease_vencido_responde_conflicto_y_solo_vale_la_entrega_vigente()
+    {
+        using var cliente = NuevoCliente();
+        const string tipo = "prueba.lease.ack";
+
+        var publicacion = await PublicarAsync(cliente, IdLeaseAck, tipo, 1);
+        Assert.Equal(HttpStatusCode.Created, publicacion.StatusCode);
+
+        var primera = await ReclamarAsync(cliente, tipo);
+        Assert.Equal(IdLeaseAck, primera.GetProperty("id").GetString());
+        Assert.Equal(1, primera.GetProperty("intentos").GetInt32());
+
+        await VencerLeaseAsync(IdLeaseAck);
+
+        // El lease venció: la entrega 1 ya no puede cerrar el evento.
+        var ackViejo = await cliente.PostAsJsonAsync(
+            $"/v1/eventos/{IdLeaseAck}/ack",
+            new { hash = "sha256:viejo", intentos = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, ackViejo.StatusCode);
+
+        var segunda = await ReclamarAsync(cliente, tipo);
+        Assert.Equal(2, segunda.GetProperty("intentos").GetInt32());
+
+        // Aunque el lease nuevo esté vigente, el ack de la entrega anterior no vale.
+        var ackDeLaPrimera = await cliente.PostAsJsonAsync(
+            $"/v1/eventos/{IdLeaseAck}/ack",
+            new { hash = "sha256:primera", intentos = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, ackDeLaPrimera.StatusCode);
+
+        var ackVigente = await cliente.PostAsJsonAsync(
+            $"/v1/eventos/{IdLeaseAck}/ack",
+            new { hash = "sha256:segunda", intentos = 2 });
+        Assert.Equal(HttpStatusCode.OK, ackVigente.StatusCode);
+    }
+
+    [Fact]
+    public async Task El_listado_no_repite_ni_pierde_los_eventos_que_ya_existian_mientras_se_publica()
+    {
+        using var cliente = NuevoCliente();
+        const string tipo = "prueba.listado.concurrente";
+
+        string[] originales =
+        [
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD0",
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD1",
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD2",
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD3",
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD4",
+            "evt_01ARZ3NDEKTSV4RRFFQ69G5FD5",
+        ];
+
+        foreach (var id in originales)
+        {
+            Assert.Equal(HttpStatusCode.Created,
+                (await PublicarAsync(cliente, id, tipo, 1)).StatusCode);
+        }
+
+        var vistos = new List<string>();
+        var pagina = await LeerPaginaAsync(cliente, limite: 2, cursor: null);
+        AgregarIds(pagina, vistos);
+        var cursor = pagina.GetProperty("siguiente").GetString();
+
+        // Se escribe mientras el lector ya tiene su cursor: la foto no puede
+        // repetir ni perder los eventos que existían al empezar.
+        foreach (var id in new[]
+                 {
+                     "evt_01ARZ3NDEKTSV4RRFFQ69G5FD6",
+                     "evt_01ARZ3NDEKTSV4RRFFQ69G5FD7",
+                     "evt_01ARZ3NDEKTSV4RRFFQ69G5FD8",
+                 })
+        {
+            Assert.Equal(HttpStatusCode.Created,
+                (await PublicarAsync(cliente, id, tipo, 1)).StatusCode);
+        }
+
+        while (!string.IsNullOrEmpty(cursor))
+        {
+            pagina = await LeerPaginaAsync(cliente, limite: 2, cursor);
+            AgregarIds(pagina, vistos);
+            cursor = pagina.GetProperty("siguiente").GetString();
+        }
+
+        foreach (var id in originales)
+        {
+            Assert.Equal(1, vistos.Count(visto => visto == id));
+        }
+
+        Assert.Equal(vistos.Count, vistos.Distinct().Count());
+    }
+
     private HttpClient NuevoCliente() => fabrica.ConPermisos();
 
     private static Task<HttpResponseMessage> PublicarAsync(
@@ -300,6 +392,42 @@ public sealed class CierreDelCicloTests : IAsyncLifetime
         var respuesta = await cliente.PostAsync($"/v1/eventos/siguiente?tipo={tipo}", content: null);
         Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
         return await respuesta.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static async Task<JsonElement> LeerPaginaAsync(
+        HttpClient cliente,
+        int limite,
+        string? cursor)
+    {
+        var ruta = $"/v1/eventos?estado=pendiente&limite={limite}";
+        if (!string.IsNullOrEmpty(cursor))
+        {
+            ruta += $"&cursor={Uri.EscapeDataString(cursor)}";
+        }
+
+        var respuesta = await cliente.GetAsync(ruta);
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        return await respuesta.Content.ReadFromJsonAsync<JsonElement>();
+    }
+
+    private static void AgregarIds(JsonElement pagina, List<string> vistos)
+    {
+        foreach (var evento in pagina.GetProperty("eventos").EnumerateArray())
+        {
+            vistos.Add(evento.GetProperty("id").GetString()!);
+        }
+    }
+
+    private async Task VencerLeaseAsync(string id)
+    {
+        await using var db = postgres.Contexto();
+        var filas = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE cola.evento
+            SET lease_hasta = {DateTimeOffset.UtcNow.AddSeconds(-1)}
+            WHERE id = {id}
+            """);
+
+        Assert.Equal(1, filas);
     }
 
     private async Task AdelantarEsperaAsync(string id)
