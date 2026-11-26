@@ -1,11 +1,19 @@
 # Guía para agentes: EventosApi
 
-API empresarial en .NET 10 creada desde la plantilla `ll-api`. Este archivo cubre la estructura, la seguridad y la verificación del repositorio.
+Servicio de eventos del cierre en .NET 10. Guarda un sobre opaco que produce otro proceso y lo entrega con lease; no conoce el dominio del consumidor. Este archivo cubre el contrato, la estructura, la seguridad y la verificación del repositorio.
+
+## Contrato
+
+- La fuente es `contracts/eventos.v1.openapi.json` para HTTP y `contracts/evento.v1.schema.json` para el sobre; el dominio y las pruebas no pueden contradecirlos. Un cambio de contrato empieza en esos ficheros, con su ADR si es estructural, y baja después al código.
+- La versión va en la ruta (`/v1`). No cambies el significado de un campo de v1: una ruptura abre v2.
+- La carga es opaca y su esquema pertenece al consumidor. No metas en el servicio reglas del dominio del cierre ni de ningún otro productor.
+- Estados: `pendiente`, `reclamado`, `aplicado`, `fallido`, `muerto`; solo cambian por las transiciones del contrato. El lease dura 300 s, hay cinco entregas como máximo y el ack solo vale para la entrega vigente.
+- La idempotencia del alta y el bloqueo de fila del reclamo viven en PostgreSQL; el fencing por entrega, en el dominio. No los muevas a memoria ni los sustituyas por un cerrojo global.
 
 ## Arquitectura
 
 - Desacoplada: `Domain` sin dependencias, `Application` solo `Domain`, `Infrastructure` de ambas y el host compone todo. No debilites esa separación.
-- Toda decisión estructural se documenta como ADR; el primero se crea al tomar la primera decisión que lo merezca.
+- Toda decisión estructural se documenta como ADR en `docs/adr/`, con su motivo y sus alternativas.
 - `Directory.Build.props` fija la configuración común de compilación y `Directory.Packages.props` la única versión de cada paquete; los `.csproj` no repiten `Nullable`, `ImplicitUsings` ni `Version`.
 
 ## Seguridad
@@ -15,6 +23,7 @@ API empresarial en .NET 10 creada desde la plantilla `ll-api`. Este archivo cubr
 - CORS con denegación por defecto y orígenes explícitos.
 - Dockerfile con usuario no privilegiado (`USER $APP_UID`). El CI construye la imagen, comprueba que no ejecuta como root y la escanea con Trivy; las dependencias se escanean con el mismo Trivy sobre los manifiestos.
 - Sin secretos ni cadenas reales en el código: `appsettings.Local.json` (ignorado), user-secrets o variables de entorno. `appsettings.Development.json` se versiona sin secretos.
+- La sonda `/health` es anónima y queda fuera del limitador; el resto de la API no se abre sin pasar por los controles del host.
 - Pruebas de integración en `tests/EventosApi.Tests` para cualquier cambio de comportamiento.
 
 ## Verificación
@@ -27,7 +36,7 @@ dotnet format EventosApi.slnx --verify-no-changes --no-restore
 gitleaks detect --source . --redact --verbose --exit-code 2
 ```
 
-Las pruebas no ven la cabecera `Server` porque `TestServer` no la escribe. Para comprobarla, arranca la API y mira `/health`:
+Las pruebas de integración necesitan Docker: `PostgresFixture` levanta PostgreSQL 18 en un contenedor y sin él `dotnet test` falla. Las pruebas no ven la cabecera `Server` porque `TestServer` no la escribe. Para comprobarla, arranca la API y mira `/health`:
 
 ```bash
 ASPNETCORE_URLS=http://127.0.0.1:8099 dotnet run --project src/EventosApi.Api --no-launch-profile &
