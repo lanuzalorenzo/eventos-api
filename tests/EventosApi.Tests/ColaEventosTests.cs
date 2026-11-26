@@ -243,7 +243,7 @@ public sealed class ColaEventosTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, alta.StatusCode);
     }
 
-    private HttpClient NuevoCliente() => fabrica.CreateClient();
+    private HttpClient NuevoCliente() => fabrica.ConPermisos();
 
     private static Task<HttpResponseMessage> PublicarAsync(
         HttpClient cliente,

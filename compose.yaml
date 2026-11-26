@@ -33,6 +33,8 @@ services:
     environment:
       ConnectionStrings__Cola: "Host=base;Port=5432;Database=eventos;Username=eventos;Password=${POSTGRES_PASSWORD:-eventos-local}"
       Database__MigrarAlArrancar: "true"
+      Autenticacion__Emisor: "${ENTRA_EMISOR:?falta ENTRA_EMISOR (URL del emisor de Entra ID)}"
+      Autenticacion__Audiencia: "${ENTRA_AUDIENCIA:?falta ENTRA_AUDIENCIA (audiencia de la API)}"
     ports:
       - "127.0.0.1:8080:8080"
 

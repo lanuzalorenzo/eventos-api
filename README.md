@@ -24,7 +24,7 @@ La fuente es [`contracts/eventos.v1.openapi.json`](contracts/eventos.v1.openapi.
 
 El sobre lleva `id` (ULID con prefijo `evt_`), `tipo`, `carga` (hasta 64 KiB en UTF-8), `publicado_en`, `estado`, `intentos`, `lease_hasta` y `resultado`. Los estados son `pendiente`, `reclamado`, `aplicado`, `fallido` y `muerto`; solo cambian por las transiciones del contrato. Un evento admite cinco entregas: el quinto nack lo deja fallido; al cumplirse la espera, el siguiente reclamo lo pasa a muerto. La espera crece entre intentos, con un máximo de cinco minutos.
 
-La autenticación con Entra ID y los permisos por operación están declarados en el contrato y se implementan en la fase de acceso; hoy la API local no exige token.
+Todas las rutas `/v1` exigen un token bearer con el permiso de la tabla; `/health` es anónima y, en Development, también lo es `/openapi`. El host valida emisor, audiencia, firma y vigencia con `LL.Security`; fuera de Testing no arranca sin emisor y audiencia válidos, y no hay opción para desactivar la autenticación. En Entra ID, cada permiso es un rol de aplicación (`roles`), que el host lee como `ClaimTypes.Role`; en las pruebas de contrato se usa el emisor local del paquete con el mismo claim.
 
 ## Estructura
 
@@ -44,20 +44,24 @@ Con Docker, API y PostgreSQL 18 en un solo paso. El build necesita un PAT de sol
 
 ```bash
 export GH_PACKAGES_TOKEN="<pat-de-solo-lectura>"
+export ENTRA_EMISOR="https://login.microsoftonline.com/<tenant-id>/v2.0"
+export ENTRA_AUDIENCIA="api://<app-id>"
 docker compose up -d --build
 curl http://localhost:8080/health
 ```
 
-`compose.yaml` fija credenciales locales que no sirven fuera de ese entorno y aplica la migración al arrancar (`Database:MigrarAlArrancar`). La API escucha en `127.0.0.1:8080`.
+`compose.yaml` fija credenciales locales que no sirven fuera de ese entorno y aplica la migración al arrancar (`Database:MigrarAlArrancar`). La API escucha en `127.0.0.1:8080`. Sin `ENTRA_EMISOR` ni `ENTRA_AUDIENCIA`, compose no arranca: no hay modo anónimo.
 
 Para ejecutar el host contra una base ya levantada:
 
 ```bash
 export GH_PACKAGES_TOKEN="<pat-de-solo-lectura>"
+export Autenticacion__Emisor="https://login.microsoftonline.com/<tenant-id>/v2.0"
+export Autenticacion__Audiencia="api://<app-id>"
 dotnet run --project src/EventosApi.Api
 ```
 
-En Development, `appsettings.Development.json` ya trae la cadena local contra el PostgreSQL del compose. Fuera de Development no hay cadena por defecto: hay que exportar `ConnectionStrings__Cola` o el host no arranca. La documentación OpenAPI solo se publica en Development. `/api/saludo` es un eco de arranque heredado de la plantilla; no forma parte del contrato.
+En Development, `appsettings.Development.json` ya trae la cadena local contra el PostgreSQL del compose. Fuera de Development no hay cadena por defecto: hay que exportar `ConnectionStrings__Cola` o el host no arranca. La documentación OpenAPI solo se publica en Development.
 
 ## Base de datos
 
@@ -70,7 +74,7 @@ dotnet ef database update 0 --project src/EventosApi.Infrastructure --startup-pr
 
 ## Controles
 
-Los paquetes `LL.Security` y `LL.Hosting` aportan CORS con denegación por defecto, cabeceras de seguridad con la `Server` de Kestrel apagada, límite por IP, ProblemDetails, HTTPS/HSTS y salud anónima. La configuración entra por `Program.cs` y `appsettings.json`; los orígenes permitidos van en `Cors:AllowedOrigins`. La sonda `/health` queda fuera del cupo del limitador.
+Los paquetes `LL.Security` y `LL.Hosting` aportan JWT con emisor y audiencia obligatorios, permisos por rol, CORS con denegación por defecto, cabeceras de seguridad con la `Server` de Kestrel apagada, límite por IP, ProblemDetails, HTTPS/HSTS y salud anónima. El host añade la página `problem+json` para 401/403 con los títulos del contrato. La configuración entra por `Program.cs` y `appsettings.json`; los orígenes permitidos van en `Cors:AllowedOrigins`. La sonda `/health` queda fuera del cupo del limitador.
 
 ## Verificación
 
@@ -92,6 +96,8 @@ Las pruebas de integración necesitan Docker: `PostgresFixture` levanta PostgreS
 docker build --secret id=github_token,env=GH_PACKAGES_TOKEN -t eventos-api .
 docker run --rm -p 127.0.0.1:8080:8080 \
   -e ConnectionStrings__Cola="Host=<host>;Port=5432;Database=eventos;Username=eventos;Password=<password>" \
+  -e Autenticacion__Emisor="https://login.microsoftonline.com/<tenant-id>/v2.0" \
+  -e Autenticacion__Audiencia="api://<app-id>" \
   eventos-api
 ```
 

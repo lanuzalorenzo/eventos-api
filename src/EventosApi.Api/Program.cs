@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EventosApi.Api.Endpoints;
@@ -37,6 +38,37 @@ builder.Services.AddApiHealthChecks();
 builder.Services.AddDenyByDefaultCors(builder.Configuration);
 builder.Services.AddRemoteIpRateLimiting();
 
+// Cada permiso del contrato es una política. Entra ID entrega los permisos
+// como roles de aplicación en `roles`; el mapeo de claims lo convierte en
+// ClaimTypes.Role, que es el claim que exige la política.
+builder.Services.AddPermissionPolicies(opciones => opciones.ClaimType = ClaimTypes.Role);
+
+if (builder.Environment.IsEnvironment("Testing"))
+{
+    // Pruebas de contrato: el mismo JwtBearer, sin autoridad remota y con una
+    // clave simétrica que solo vive en el proceso.
+    var emisorLocal = new LocalJwtIssuer("eventos-api");
+    builder.Services.AddSingleton(emisorLocal);
+    builder.Services.AddLocalJwtBearer(emisorLocal);
+}
+else
+{
+    // Sin emisor ni audiencia válidos el arranque falla: no hay modo anónimo.
+    var emisor = builder.Configuration["Autenticacion:Emisor"];
+    var audiencia = builder.Configuration["Autenticacion:Audiencia"];
+    if (string.IsNullOrWhiteSpace(emisor) || string.IsNullOrWhiteSpace(audiencia))
+    {
+        throw new InvalidOperationException(
+            "Falta Autenticacion:Emisor o Autenticacion:Audiencia. No hay modo anónimo.");
+    }
+
+    builder.Services.AddHardenedJwtBearer(opciones =>
+    {
+        opciones.Authority = emisor;
+        opciones.Audience = audiencia;
+    });
+}
+
 var app = builder.Build();
 
 // En compose la migración la aplica el propio servicio; en local se puede
@@ -56,12 +88,28 @@ if (app.Environment.IsDevelopment())
 // manejador de excepciones va antes que el resto del pipeline de la aplicación.
 app.UseSecurityHeaders();
 app.UseApiProblemDetails();
+// Las respuestas 401 y 403 de la autenticación no traen cuerpo: el contrato
+// promete problem+json y esta página lo escribe sin tocar el resto de estados.
+app.UseStatusCodePages(async contexto =>
+{
+    var respuesta = contexto.HttpContext.Response;
+    if (respuesta.StatusCode is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden)
+    {
+        await Results.Problem(
+            statusCode: respuesta.StatusCode,
+            title: respuesta.StatusCode == StatusCodes.Status401Unauthorized
+                ? "No autenticado"
+                : "Sin permiso")
+            .ExecuteAsync(contexto.HttpContext);
+    }
+});
 app.UseApiTransportSecurity(app.Environment);
 app.UseCors("ApiCors");
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseRateLimiter();
 
 app.MapEventos();
-app.MapGet("/api/saludo", () => Results.Ok(new { mensaje = "Hola" }));
 // La sonda de la plataforma no comparte el cupo del tráfico de la API.
 app.MapApiHealthChecks().DisableRateLimiting();
 

@@ -217,6 +217,9 @@ public sealed class CierreDelCicloTests : IAsyncLifetime
 
         var consulta = await cliente.GetAsync($"/v1/eventos/{IdInexistente}");
         Assert.Equal(HttpStatusCode.NotFound, consulta.StatusCode);
+        var problema = await consulta.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(404, problema.GetProperty("status").GetInt32());
+        Assert.Equal("Evento no encontrado", problema.GetProperty("title").GetString());
 
         var ack = await cliente.PostAsJsonAsync(
             $"/v1/eventos/{IdInexistente}/ack",
@@ -246,7 +249,39 @@ public sealed class CierreDelCicloTests : IAsyncLifetime
             (await cliente.GetAsync("/v1/eventos/no-es-un-ulid")).StatusCode);
     }
 
-    private HttpClient NuevoCliente() => fabrica.CreateClient();
+    [Fact]
+    public async Task Un_token_con_el_permiso_de_lectura_pasa()
+    {
+        using var cliente = fabrica.ConPermisos("eventos.leer");
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await cliente.GetAsync("/v1/eventos")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Un_token_sin_el_permiso_de_lectura_recibe_403()
+    {
+        using var cliente = fabrica.ConPermisos("eventos.publicar", "eventos.consumir");
+
+        Assert.Equal(HttpStatusCode.Forbidden,
+            (await cliente.GetAsync("/v1/eventos")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Un_token_con_roles_de_entra_mapeado_pasa()
+    {
+        // Entra ID entrega los permisos en `roles`; el mapeo de claims del
+        // JwtBearer los convierte en ClaimTypes.Role. No se fabrica ese claim
+        // directamente: se prueba el paso real.
+        var emisor = fabrica.EmisorDePrueba();
+        var token = emisor.CreateTokenWithPermissions(["eventos.leer"], claimType: "roles");
+        using var cliente = fabrica.ConToken(token);
+
+        Assert.Equal(HttpStatusCode.OK,
+            (await cliente.GetAsync("/v1/eventos")).StatusCode);
+    }
+
+    private HttpClient NuevoCliente() => fabrica.ConPermisos();
 
     private static Task<HttpResponseMessage> PublicarAsync(
         HttpClient cliente,

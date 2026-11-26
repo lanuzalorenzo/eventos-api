@@ -20,6 +20,9 @@ Servicio de eventos del cierre en .NET 10. Guarda un sobre opaco que produce otr
 
 - Security by Design y OWASP API Security Top 10.
 - Los controles compartidos se consumen desde `LL.Security` y `LL.Hosting`; no los reimplementes en el host.
+- Autenticación: `AddHardenedJwtBearer` con emisor y audiencia obligatorios fuera de Testing; sin valores, el arranque falla. Las pruebas usan `AddLocalJwtBearer` con `LocalJwtIssuer`, nunca un modo anónimo. No añadas ninguna bandera que desactive la autenticación.
+- Permisos: `AddPermissionPolicies` con `ClaimType = ClaimTypes.Role` (los roles de aplicación de Entra ID) y `RequirePermission` por operación, según la tabla del contrato (`eventos.publicar`, `eventos.consumir`, `eventos.leer`). El emisor local de pruebas emite el mismo claim. `UseAuthentication`/`UseAuthorization` va antes de los endpoints.
+- Las respuestas 401 y 403 llevan `application/problem+json`; si tocas el pipeline, conserva esa página de estado. Fija los títulos del contrato v1, por eso vive en el host: si otro consumidor necesita la misma página, sube a `LL.Hosting` con su prueba.
 - CORS con denegación por defecto y orígenes explícitos.
 - Dockerfile con usuario no privilegiado (`USER $APP_UID`). El CI construye la imagen, comprueba que no ejecuta como root y la escanea con Trivy; las dependencias se escanean con el mismo Trivy sobre los manifiestos.
 - Sin secretos ni cadenas reales en el código: `appsettings.Local.json` (ignorado), user-secrets o variables de entorno. `appsettings.Development.json` se versiona sin secretos.
