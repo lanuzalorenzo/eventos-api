@@ -10,6 +10,7 @@
     <!-- Versión exacta: una actualización de shared-dotnet pasa por el mismo CI. -->
     <PackageVersion Include="LL.Hosting" Version="0.1.0" />
     <PackageVersion Include="LL.Security" Version="0.4.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.15" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.15" />
   </ItemGroup>
 

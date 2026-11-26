@@ -4,11 +4,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace EventosApi.Tests;
 
 /// <summary>Host de pruebas apuntando al PostgreSQL del contenedor.</summary>
-public sealed class ApiFactoryConBase(string cadenaConexion) : WebApplicationFactory<Program>
+public sealed class ApiFactoryConBase(
+    string cadenaConexion,
+    ILoggerProvider? registros = null) : WebApplicationFactory<Program>
 {
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -21,6 +24,11 @@ public sealed class ApiFactoryConBase(string cadenaConexion) : WebApplicationFac
         {
             servicios.RemoveAll<ISondaBase>();
             servicios.AddSingleton<ISondaBase>(new SondaSiempre(true));
+
+            if (registros is not null)
+            {
+                servicios.AddSingleton<ILoggerProvider>(registros);
+            }
         });
     }
 

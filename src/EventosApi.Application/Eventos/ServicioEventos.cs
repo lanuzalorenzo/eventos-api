@@ -1,5 +1,6 @@
 using System.Text.Json;
 using EventosApi.Domain;
+using Microsoft.Extensions.Logging;
 
 namespace EventosApi.Application.Eventos;
 
@@ -22,18 +23,37 @@ public sealed record PaginaEventos(IReadOnlyList<Evento> Eventos, string? Siguie
 /// Casos de uso de la cola. El alta es idempotente por identificador y el
 /// reclamo entrega un solo evento por sesión, con lease.
 /// </summary>
-public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
+public sealed class ServicioEventos(
+    IColaEventos cola,
+    TimeProvider reloj,
+    ILogger<ServicioEventos> registro)
 {
     private const int IntentosDeAlta = 2;
     private const int LimitePorDefecto = 50;
     private const int LimiteMaximo = 200;
 
-    public Task<ResultadoPublicacion> PublicarAsync(
+    public async Task<ResultadoPublicacion> PublicarAsync(
         PublicarEvento solicitud,
         CancellationToken cancelacion)
     {
         ArgumentNullException.ThrowIfNull(solicitud);
-        return PublicarConReintentoAsync(solicitud, cancelacion);
+
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.publicar");
+
+        var resultado = await PublicarConReintentoAsync(solicitud, cancelacion);
+
+        actividad?.SetTag("evento.id", resultado.Evento.Id);
+        actividad?.SetTag("evento.tipo", resultado.Evento.Tipo);
+        actividad?.SetTag("evento.estado", resultado.Evento.Estado.ToString().ToLowerInvariant());
+        actividad?.SetTag("evento.creado", resultado.Creado);
+        Telemetria.Publicados.Add(1);
+        registro.LogInformation(
+            "Evento {EventoId} publicado en estado {Estado} ({Resultado})",
+            resultado.Evento.Id,
+            resultado.Evento.Estado,
+            resultado.Creado ? "creado" : "actualizado");
+
+        return resultado;
     }
 
     public async Task<Evento?> ReclamarAsync(string? tipo, CancellationToken cancelacion)
@@ -45,9 +65,13 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
                 nameof(tipo));
         }
 
-        var ahora = reloj.GetUtcNow();
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.reclamar");
+        actividad?.SetTag("evento.tipo", tipo);
 
-        return await cola.EnTransaccionAsync(async (transaccion, ct) =>
+        var ahora = reloj.GetUtcNow();
+        var apartados = new List<Evento>();
+
+        var evento = await cola.EnTransaccionAsync(async (transaccion, ct) =>
         {
             // Un evento puede apartarse en muertos al reclamarlo; se sigue con
             // el siguiente candidato en la misma transacción. Cada vuelta deja
@@ -72,6 +96,7 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
 
                 if (candidato.Estado == EstadoEvento.Muerto)
                 {
+                    apartados.Add(candidato);
                     await transaccion.GuardarAsync(ct);
                     continue;
                 }
@@ -79,12 +104,39 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
                 var resultado = candidato.Reclamar(ahora);
                 await transaccion.GuardarAsync(ct);
 
+                if (resultado == ResultadoReclamo.Apartado)
+                {
+                    apartados.Add(candidato);
+                    continue;
+                }
+
                 if (resultado == ResultadoReclamo.Entregado)
                 {
                     return candidato;
                 }
             }
         }, cancelacion);
+
+        foreach (var apartado in apartados)
+        {
+            Telemetria.Muertos.Add(1);
+            registro.LogWarning("Evento {EventoId} apartado en muerto", apartado.Id);
+        }
+
+        if (evento is null)
+        {
+            actividad?.SetTag("evento.encontrado", false);
+            return null;
+        }
+
+        actividad?.SetTag("evento.id", evento.Id);
+        actividad?.SetTag("evento.intentos", evento.Intentos);
+        Telemetria.Reclamados.Add(1);
+        registro.LogInformation(
+            "Evento {EventoId} reclamado en la entrega {Intentos}",
+            evento.Id,
+            evento.Intentos);
+        return evento;
     }
 
     public async Task<PaginaEventos> ListarAsync(
@@ -93,6 +145,8 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
         string? cursor,
         CancellationToken cancelacion)
     {
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.listar");
+
         var tamano = limite ?? LimitePorDefecto;
 
         if (tamano is < 1 or > LimiteMaximo)
@@ -114,17 +168,19 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
             eventos.Count > tamano ? CursorEventos.Codificar(pagina[^1]) : null);
     }
 
-    public Task<Evento?> ConsultarAsync(string id, CancellationToken cancelacion)
+    public async Task<Evento?> ConsultarAsync(string id, CancellationToken cancelacion)
     {
         ValidarId(id);
-        return cola.BuscarAsync(id, cancelacion);
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.consultar");
+        actividad?.SetTag("evento.id", id);
+        return await cola.BuscarAsync(id, cancelacion);
     }
 
     /// <summary>
     /// Cierra la entrega con el hash del commit. Devuelve nulo si el evento no
     /// existe; una entrega anterior o un lease vencido lanzan la transición.
     /// </summary>
-    public Task<Evento?> AcusarAsync(
+    public async Task<Evento?> AcusarAsync(
         string id,
         SolicitudAck solicitud,
         CancellationToken cancelacion)
@@ -147,7 +203,10 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
                 nameof(solicitud));
         }
 
-        return cola.EnTransaccionAsync(async (transaccion, ct) =>
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.ack");
+        actividad?.SetTag("evento.id", id);
+
+        var evento = await cola.EnTransaccionAsync(async (transaccion, ct) =>
         {
             var evento = await transaccion.BuscarConBloqueoAsync(id, ct);
             if (evento is null)
@@ -159,13 +218,21 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
             await transaccion.GuardarAsync(ct);
             return evento;
         }, cancelacion);
+
+        if (evento is not null)
+        {
+            Telemetria.Aplicados.Add(1);
+            registro.LogInformation("Evento {EventoId} aplicado", evento.Id);
+        }
+
+        return evento;
     }
 
     /// <summary>
     /// Marca la entrega como fallida y fija la espera antes del reintento.
     /// Devuelve nulo si el evento no existe.
     /// </summary>
-    public Task<Evento?> RechazarAsync(
+    public async Task<Evento?> RechazarAsync(
         string id,
         SolicitudNack solicitud,
         CancellationToken cancelacion)
@@ -188,7 +255,10 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
                 nameof(solicitud));
         }
 
-        return cola.EnTransaccionAsync(async (transaccion, ct) =>
+        using var actividad = Telemetria.Actividades.StartActivity("eventos.nack");
+        actividad?.SetTag("evento.id", id);
+
+        var evento = await cola.EnTransaccionAsync(async (transaccion, ct) =>
         {
             var evento = await transaccion.BuscarConBloqueoAsync(id, ct);
             if (evento is null)
@@ -200,6 +270,14 @@ public sealed class ServicioEventos(IColaEventos cola, TimeProvider reloj)
             await transaccion.GuardarAsync(ct);
             return evento;
         }, cancelacion);
+
+        if (evento is not null)
+        {
+            Telemetria.Fallidos.Add(1);
+            registro.LogInformation("Evento {EventoId} fallido; reintento programado", evento.Id);
+        }
+
+        return evento;
     }
 
     private static EstadoEvento? EstadoPedido(string? estado)

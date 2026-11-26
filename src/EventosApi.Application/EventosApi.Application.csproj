@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EventosApi.Domain\EventosApi.Domain.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
   </ItemGroup>
 
 </Project>
