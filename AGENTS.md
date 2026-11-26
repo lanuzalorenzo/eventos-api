@@ -74,15 +74,15 @@ Los identificadores y el criterio son los de [`shared-dotnet/docs/linea-base.md`
 | `salud` | Validado | `AddApiHealthChecks` y `MapApiHealthChecks`; `/health` anónimo en `HealthTests` y `unhealthy` cuando la base no responde. |
 | `permisos-workflow` | Validado | `permissions` explícito por workflow y por job; sin `write-all`. Escritura solo donde la operación la exige: `security-events` en SAST, SCA y contenedor, `pull-requests` en la revisión de dependencias y `contents` + `pull-requests` en el auto-merge de Dependabot. |
 | `secretos` | Validado | Gitleaks sobre el historial completo en cada push y PR (`.github/workflows/ci.yml`, job `secret-scanning`). |
-| `sast` | Parcial | Job `sast` con CodeQL; en privado el fallo no bloquea (`continue-on-error` hasta publicar) y la subida de SARIF se activa con el repositorio público. |
-| `sca` | Validado | Job `sca` con Trivy sobre los manifiestos, bloqueante con el umbral por defecto de `core/actions/scan` (`CRITICAL,HIGH`); la subida de SARIF se activa al publicar. |
+| `sast` | Validado | Job `sast` con CodeQL y subida de SARIF; verde en el [run sobre `main` 45819366110](https://github.com/lanuzalorenzo/eventos-api/actions/runs/45819366110) (2026-11-26). |
+| `sca` | Validado | Job `sca` con Trivy sobre los manifiestos, bloqueante con el umbral por defecto de `core/actions/scan` (`CRITICAL,HIGH`); la subida de SARIF está activa. |
 | `contenedor` | Validado | Job `container-security`: construye la imagen, comprueba que el UID no es 0 y la escanea con Trivy. |
 | `dependabot` | Validado | `.github/dependabot.yml` para NuGet, Docker y GitHub Actions, y `dependabot-auto-merge.yml` para parche y menor. |
-| `enlaces` | Parcial | Job `links` con `check-links@v1.8` (entrada `root`) sobre los 8 documentos; falta el primer run en `main` para pasar a Validado. |
-| `main` | Parcial | Sin ruleset comprobable hasta publicar (EV-28): con el repositorio privado la API de rulesets responde 403 en el plan actual. Se configura al publicar, no antes. |
+| `enlaces` | Validado | Job `links` con `check-links@v1.8` (entrada `root`) sobre los 8 documentos; verde en el [run sobre `main` 45819366110](https://github.com/lanuzalorenzo/eventos-api/actions/runs/45819366110). |
+| `main` | Validado | Ruleset [`main`](https://github.com/lanuzalorenzo/eventos-api/rules/28163092) con pull request, siete checks, rama actualizada, historial lineal, squash y sin bypass; run de `workflow_dispatch` sobre `main` en verde ([45819366110](https://github.com/lanuzalorenzo/eventos-api/actions/runs/45819366110), 2026-11-26). |
 
 ## Commits
 
 Formato: `type(scope): imperative summary in English`. Scopes: `api`, `ci`, `tests`, `docs`, `repo`. Tipos: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
-Con el repositorio privado, el propietario empuja a `main`; al publicarse (EV-28), `main` exige rama, pull request y los checks del pipeline.
+Los cambios entran por rama y pull request: `main` exige PR y siete checks del pipeline, sin bypass.
